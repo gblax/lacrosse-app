@@ -55,7 +55,7 @@ function GameStatus({ game }: { game: Game }) {
   )
 }
 
-function TeamRow({ team, game, side }: { team: Team; game: Game; side: 'home' | 'away' }) {
+function TeamRow({ team, game }: { team: Team; game: Game }) {
   const isWinner = game.state === 'final' && team.isWinner
   return (
     <div className={`flex items-center gap-2 py-1.5 ${isWinner ? 'text-white' : 'text-slate-300'}`}>
@@ -130,8 +130,8 @@ export default function GameCard({ game }: GameCardProps) {
         <GameStatus game={game} />
       </div>
 
-      <TeamRow team={game.away} game={game} side="away" />
-      <TeamRow team={game.home} game={game} side="home" />
+      <TeamRow team={game.away} game={game} />
+      <TeamRow team={game.home} game={game} />
 
       <PeriodScores game={game} />
     </div>
