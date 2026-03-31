@@ -53,6 +53,7 @@ function parseScore(score: string | undefined): number | null {
 }
 
 function extractRecord(description: string): string {
+  if (!description) return ''
   const match = description.match(/\(([^)]+)\)/)
   return match ? match[1] : ''
 }
@@ -81,7 +82,7 @@ function buildTeam(
 // Build a lookup from ESPN data for logos/colors by team abbreviation
 function buildEspnLookup(espnData: EspnScoreboardResponse | null): Map<string, { logo?: string; color?: string }> {
   const lookup = new Map<string, { logo?: string; color?: string }>()
-  if (!espnData) return lookup
+  if (!espnData?.events) return lookup
   for (const event of espnData.events) {
     for (const comp of event.competitions) {
       for (const competitor of comp.competitors) {
@@ -99,7 +100,7 @@ export function transformGames(
   ncaaData: NcaaScoreboardResponse | null,
   espnData: EspnScoreboardResponse | null,
 ): Game[] {
-  if (!ncaaData?.games) return []
+  if (!ncaaData?.games?.length) return []
 
   const espnLookup = buildEspnLookup(espnData)
 
@@ -129,19 +130,37 @@ export function transformGames(
   })
 }
 
+// Helper to find a value from a row by trying multiple possible column names (case-insensitive)
+function getField(row: Record<string, string>, ...candidates: string[]): string {
+  for (const key of candidates) {
+    // Try exact match first
+    if (row[key] !== undefined) return row[key]
+    // Case-insensitive match
+    const found = Object.keys(row).find((k) => k.toLowerCase() === key.toLowerCase())
+    if (found) return row[found]
+  }
+  return ''
+}
+
 export function transformRankings(data: NcaaRankingsResponse | null): Rankings | null {
-  if (!data?.rankings) return null
-  const teams: RankedTeam[] = data.rankings.map((r) => ({
-    rank: r.rank,
-    name: r.school.name,
-    conference: r.school.conference,
-    record: r.record,
-    previousRank: r.previousRank,
-    change: r.change,
-  }))
+  if (!data?.data?.length) return null
+
+  const teams: RankedTeam[] = data.data.map((row) => {
+    const rankStr = getField(row, 'RK', 'Rank', '#')
+    const rank = parseInt(rankStr, 10) || 0
+    const name = getField(row, 'SCHOOL', 'School', 'Team', 'TEAM', 'NAME')
+    const conference = getField(row, 'CONFERENCE', 'Conference', 'Conf', 'CONF')
+    const record = getField(row, 'OVERALL', 'Overall', 'Record', 'RECORD', 'W-L')
+    const prevStr = getField(row, 'PREV', 'Prev', 'Previous', 'PREVIOUS', 'PRIOR')
+    const previousRank = parseInt(prevStr, 10) || 0
+    const change = previousRank > 0 && rank > 0 ? previousRank - rank : 0
+
+    return { rank, name, conference, record, previousRank, change }
+  }).filter((t) => t.rank > 0)
+
   return {
     teams,
-    title: data.title,
-    updatedAt: data.updatedAt,
+    title: data.title || 'Inside Lacrosse Rankings',
+    updatedAt: data.updated || '',
   }
 }

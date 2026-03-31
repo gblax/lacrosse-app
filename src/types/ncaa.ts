@@ -29,7 +29,7 @@ export interface NcaaGame {
   gameID: string
   startDate: string
   startTime: string
-  startTimeEpoch: number
+  startTimeEpoch: string
   gameState: 'pre' | 'live' | 'final'
   currentPeriod: string
   contestClock: string
@@ -38,27 +38,17 @@ export interface NcaaGame {
   away: NcaaTeam
   network: string
   url: string
-  periodsEnabled: boolean
-  periods: NcaaPeriod[]
+  periods?: NcaaPeriod[]
 }
 
 export interface NcaaScoreboardResponse {
   games: Array<{ game: NcaaGame }>
 }
 
-export interface NcaaRankedTeam {
-  rank: number
-  school: {
-    name: string
-    conference: string
-  }
-  record: string
-  previousRank: number
-  change: number
-}
-
+// Rankings response is parsed HTML table rows — each row is a Record<string, string>
+// with keys matching the table column headers (e.g., "RK", "SCHOOL", "CONFERENCE", "OVERALL", "PTS", "PREV")
 export interface NcaaRankingsResponse {
-  rankings: NcaaRankedTeam[]
   title: string
-  updatedAt: string
+  updated: string
+  data: Array<Record<string, string>>
 }
