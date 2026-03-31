@@ -24,20 +24,27 @@ export async function fetchNcaaScoreboard(date: Date): Promise<NcaaScoreboardRes
   return res.json()
 }
 
+// Try multiple ranking polls in order — Inside Lacrosse is sometimes empty on ncaa.com
+const RANKING_POLLS = [
+  'inside-lacrosse',
+  'usila-coaches',
+  'ncaa-mens-lacrosse-rpi',
+]
+
 export async function fetchNcaaRankings(): Promise<NcaaRankingsResponse> {
-  const url = `${NCAA_API_BASE}/rankings/lacrosse-men/d1/inside-lacrosse`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`NCAA Rankings API error: ${res.status}`)
-  const data = await res.json()
-  // Debug: log the actual response shape so we can see field names
-  if (import.meta.env.DEV) {
-    console.log('[Rankings API] Response keys:', Object.keys(data))
+  for (const poll of RANKING_POLLS) {
+    const url = `${NCAA_API_BASE}/rankings/lacrosse-men/d1/${poll}`
+    const res = await fetch(url)
+    if (!res.ok) continue
+    const data = await res.json()
+    console.log(`[Rankings] Tried "${poll}":`, data.data?.length ?? 0, 'rows')
     if (data.data?.length) {
-      console.log('[Rankings API] First row keys:', Object.keys(data.data[0]))
-      console.log('[Rankings API] First row:', data.data[0])
+      console.log('[Rankings] First row keys:', Object.keys(data.data[0]))
+      console.log('[Rankings] First row:', data.data[0])
+      return data
     }
   }
-  return data
+  throw new Error('No rankings data available from any poll')
 }
 
 // --- ESPN API ---
