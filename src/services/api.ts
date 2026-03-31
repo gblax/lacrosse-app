@@ -24,27 +24,77 @@ export async function fetchNcaaScoreboard(date: Date): Promise<NcaaScoreboardRes
   return res.json()
 }
 
-// Try multiple ranking polls in order — Inside Lacrosse is sometimes empty on ncaa.com
+// --- Rankings ---
+
+// Try NCAA polls first, then fall back to ESPN rankings
 const RANKING_POLLS = [
   'inside-lacrosse',
   'usila-coaches',
   'ncaa-mens-lacrosse-rpi',
 ]
 
-export async function fetchNcaaRankings(): Promise<NcaaRankingsResponse> {
+// Unified rankings response type that both NCAA and ESPN parsers produce
+export interface RankingsApiResult {
+  source: 'ncaa' | 'espn'
+  title: string
+  updated: string
+  teams: RankedTeam[]
+}
+
+async function tryNcaaRankings(): Promise<RankingsApiResult | null> {
   for (const poll of RANKING_POLLS) {
-    const url = `${NCAA_API_BASE}/rankings/lacrosse-men/d1/${poll}`
-    const res = await fetch(url)
-    if (!res.ok) continue
-    const data = await res.json()
-    console.log(`[Rankings] Tried "${poll}":`, data.data?.length ?? 0, 'rows')
-    if (data.data?.length) {
-      console.log('[Rankings] First row keys:', Object.keys(data.data[0]))
-      console.log('[Rankings] First row:', data.data[0])
-      return data
+    try {
+      const url = `${NCAA_API_BASE}/rankings/lacrosse-men/d1/${poll}`
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data: NcaaRankingsResponse = await res.json()
+      console.log(`[Rankings] NCAA "${poll}":`, data.data?.length ?? 0, 'rows')
+      if (data.data?.length) {
+        console.log('[Rankings] First row keys:', Object.keys(data.data[0]))
+        console.log('[Rankings] First row:', data.data[0])
+        const teams = transformNcaaRankingRows(data.data)
+        if (teams.length) {
+          return {
+            source: 'ncaa',
+            title: data.title || `Rankings (${poll})`,
+            updated: data.updated || '',
+            teams,
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[Rankings] NCAA "${poll}" failed:`, e)
     }
   }
-  throw new Error('No rankings data available from any poll')
+  return null
+}
+
+async function tryEspnRankings(): Promise<RankingsApiResult | null> {
+  try {
+    const res = await fetch(`${ESPN_API_BASE}/rankings`)
+    if (!res.ok) {
+      console.log('[Rankings] ESPN returned', res.status)
+      return null
+    }
+    const data = await res.json()
+    console.log('[Rankings] ESPN response keys:', Object.keys(data))
+    return transformEspnRankings(data)
+  } catch (e) {
+    console.warn('[Rankings] ESPN failed:', e)
+    return null
+  }
+}
+
+export async function fetchRankings(): Promise<RankingsApiResult> {
+  // Try NCAA first
+  const ncaa = await tryNcaaRankings()
+  if (ncaa) return ncaa
+
+  // Fall back to ESPN
+  const espn = await tryEspnRankings()
+  if (espn) return espn
+
+  throw new Error('No rankings data available from any source')
 }
 
 // --- ESPN API ---
@@ -177,22 +227,9 @@ function getField(row: Record<string, string>, ...candidates: string[]): string 
   return ''
 }
 
-export function transformRankings(data: NcaaRankingsResponse | null): Rankings | null {
-  if (!data) return null
-
-  // The API might return data in different shapes — handle both array and object forms
-  const rows = data.data
-  if (!rows?.length) {
-    console.warn('[Rankings] No data rows found. Response:', data)
-    return null
-  }
-
-  // Log first row keys in production too, for debugging
-  console.log('[Rankings] Row keys:', Object.keys(rows[0]), 'First row:', rows[0])
-
-  const teams: RankedTeam[] = rows.map((row, index) => {
+function transformNcaaRankingRows(rows: Record<string, string>[]): RankedTeam[] {
+  return rows.map((row, index) => {
     const rankStr = getField(row, 'RK', 'Rank', '#', 'Rk')
-    // If no rank field found, use array position
     const rank = parseInt(rankStr, 10) || (index + 1)
     const name = getField(row, 'SCHOOL', 'School', 'Team', 'TEAM', 'NAME', 'Name')
     const conference = getField(row, 'CONFERENCE', 'Conference', 'Conf', 'CONF')
@@ -202,16 +239,39 @@ export function transformRankings(data: NcaaRankingsResponse | null): Rankings |
     const change = previousRank > 0 && rank > 0 ? previousRank - rank : 0
 
     return { rank, name, conference, record, previousRank, change }
-  }).filter((t) => t.name) // Filter out rows with no team name
+  }).filter((t) => t.name)
+}
 
-  if (!teams.length) {
-    console.warn('[Rankings] No teams could be parsed from rows')
-    return null
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transformEspnRankings(data: any): RankingsApiResult | null {
+  // ESPN rankings response: { rankings: [{ name, ranks: [{ current, team, recordSummary, ... }] }] }
+  const rankingsArr = data?.rankings
+  if (!Array.isArray(rankingsArr) || !rankingsArr.length) return null
+
+  // Use the first available ranking
+  const ranking = rankingsArr[0]
+  const ranks = ranking?.ranks
+  if (!Array.isArray(ranks) || !ranks.length) return null
+
+  console.log('[Rankings] ESPN first rank entry:', ranks[0])
+
+  const teams: RankedTeam[] = ranks.map((entry: any, index: number) => {
+    const rank = entry.current ?? (index + 1)
+    const name = entry.team?.displayName ?? entry.team?.name ?? entry.team?.shortDisplayName ?? ''
+    const conference = entry.team?.groups?.name ?? ''
+    const record = entry.recordSummary ?? ''
+    const previousRank = entry.previous ?? 0
+    const change = previousRank > 0 && rank > 0 ? previousRank - rank : 0
+
+    return { rank, name, conference, record, previousRank, change }
+  }).filter((t: RankedTeam) => t.name)
+
+  if (!teams.length) return null
 
   return {
+    source: 'espn',
+    title: ranking.name ?? ranking.headline ?? 'Rankings',
+    updated: ranking.date ?? '',
     teams,
-    title: data.title || 'Inside Lacrosse Rankings',
-    updatedAt: data.updated || '',
   }
 }
