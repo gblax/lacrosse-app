@@ -1,5 +1,7 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/ncaa/:path*", "destination": "https://ncaa-api.henrygd.me/:path*" },
+    { "source": "/api/espn/:path*", "destination": "https://site.api.espn.com/apis/site/v2/sports/lacrosse/mens-college-lacrosse/:path*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

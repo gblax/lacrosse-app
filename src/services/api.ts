@@ -2,8 +2,10 @@ import type { NcaaScoreboardResponse, NcaaRankingsResponse } from '../types/ncaa
 import type { EspnScoreboardResponse } from '../types/espn'
 import type { Game, Team, PeriodScore, Rankings, RankedTeam } from '../types'
 
-const NCAA_API_BASE = 'https://ncaa-api.henrygd.me'
-const ESPN_API_BASE = 'https://site.api.espn.com/apis/site/v2/sports/lacrosse/mens-college-lacrosse'
+// Proxy through our own server to avoid CORS issues.
+// Vite dev server proxy and Vercel rewrites both handle /api/* paths.
+const NCAA_API_BASE = '/api/ncaa'
+const ESPN_API_BASE = '/api/espn'
 
 // --- NCAA API ---
 
