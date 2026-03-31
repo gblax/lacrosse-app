@@ -7,6 +7,11 @@ import type { Game, Team, PeriodScore, Rankings, RankedTeam } from '../types'
 const NCAA_API_BASE = '/api/ncaa'
 const ESPN_API_BASE = '/api/espn'
 
+// NCAA team logos via the ncaa-api logo endpoint
+function ncaaLogoUrl(seo: string): string {
+  return `${NCAA_API_BASE}/logo/${seo}.svg`
+}
+
 // --- NCAA API ---
 
 export async function fetchNcaaScoreboard(date: Date): Promise<NcaaScoreboardResponse> {
@@ -23,7 +28,16 @@ export async function fetchNcaaRankings(): Promise<NcaaRankingsResponse> {
   const url = `${NCAA_API_BASE}/rankings/lacrosse-men/d1/inside-lacrosse`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`NCAA Rankings API error: ${res.status}`)
-  return res.json()
+  const data = await res.json()
+  // Debug: log the actual response shape so we can see field names
+  if (import.meta.env.DEV) {
+    console.log('[Rankings API] Response keys:', Object.keys(data))
+    if (data.data?.length) {
+      console.log('[Rankings API] First row keys:', Object.keys(data.data[0]))
+      console.log('[Rankings API] First row:', data.data[0])
+    }
+  }
+  return data
 }
 
 // --- ESPN API ---
@@ -66,6 +80,11 @@ function buildTeam(
   espnLogo?: string | null,
   espnColor?: string | null,
 ): Team {
+  // Use NCAA API logo as primary (reliable), ESPN as fallback for color
+  const logo = ncaaTeam.names.seo
+    ? ncaaLogoUrl(ncaaTeam.names.seo)
+    : espnLogo ?? null
+
   return {
     name: ncaaTeam.names.full,
     shortName: ncaaTeam.names.short,
@@ -74,7 +93,7 @@ function buildTeam(
     rank: parseRank(ncaaTeam.rank),
     record: extractRecord(ncaaTeam.description),
     conference: ncaaTeam.conferences?.[0]?.conferenceName ?? '',
-    logo: espnLogo ?? null,
+    logo,
     color: espnColor ? `#${espnColor}` : null,
     isWinner: ncaaTeam.winner,
     isHome,
@@ -132,33 +151,56 @@ export function transformGames(
   })
 }
 
-// Helper to find a value from a row by trying multiple possible column names (case-insensitive)
+// Helper to find a value from a row by trying multiple possible column names
 function getField(row: Record<string, string>, ...candidates: string[]): string {
   for (const key of candidates) {
-    // Try exact match first
     if (row[key] !== undefined) return row[key]
-    // Case-insensitive match
-    const found = Object.keys(row).find((k) => k.toLowerCase() === key.toLowerCase())
-    if (found) return row[found]
+  }
+  // Case-insensitive fallback
+  const rowKeysLower = Object.keys(row).map((k) => [k, k.toLowerCase()] as const)
+  for (const key of candidates) {
+    const match = rowKeysLower.find(([, lower]) => lower === key.toLowerCase())
+    if (match) return row[match[0]]
+  }
+  // Partial match fallback (e.g., key "Overall Record" matches candidate "overall")
+  for (const key of candidates) {
+    const match = rowKeysLower.find(([, lower]) => lower.includes(key.toLowerCase()))
+    if (match) return row[match[0]]
   }
   return ''
 }
 
 export function transformRankings(data: NcaaRankingsResponse | null): Rankings | null {
-  if (!data?.data?.length) return null
+  if (!data) return null
 
-  const teams: RankedTeam[] = data.data.map((row) => {
-    const rankStr = getField(row, 'RK', 'Rank', '#')
-    const rank = parseInt(rankStr, 10) || 0
-    const name = getField(row, 'SCHOOL', 'School', 'Team', 'TEAM', 'NAME')
+  // The API might return data in different shapes — handle both array and object forms
+  const rows = data.data
+  if (!rows?.length) {
+    console.warn('[Rankings] No data rows found. Response:', data)
+    return null
+  }
+
+  // Log first row keys in production too, for debugging
+  console.log('[Rankings] Row keys:', Object.keys(rows[0]), 'First row:', rows[0])
+
+  const teams: RankedTeam[] = rows.map((row, index) => {
+    const rankStr = getField(row, 'RK', 'Rank', '#', 'Rk')
+    // If no rank field found, use array position
+    const rank = parseInt(rankStr, 10) || (index + 1)
+    const name = getField(row, 'SCHOOL', 'School', 'Team', 'TEAM', 'NAME', 'Name')
     const conference = getField(row, 'CONFERENCE', 'Conference', 'Conf', 'CONF')
-    const record = getField(row, 'OVERALL', 'Overall', 'Record', 'RECORD', 'W-L')
-    const prevStr = getField(row, 'PREV', 'Prev', 'Previous', 'PREVIOUS', 'PRIOR')
+    const record = getField(row, 'OVERALL', 'Overall', 'Record', 'RECORD', 'W-L', 'W/L')
+    const prevStr = getField(row, 'PREV', 'Prev', 'Previous', 'PREVIOUS', 'PRIOR', 'Prior')
     const previousRank = parseInt(prevStr, 10) || 0
     const change = previousRank > 0 && rank > 0 ? previousRank - rank : 0
 
     return { rank, name, conference, record, previousRank, change }
-  }).filter((t) => t.rank > 0)
+  }).filter((t) => t.name) // Filter out rows with no team name
+
+  if (!teams.length) {
+    console.warn('[Rankings] No teams could be parsed from rows')
+    return null
+  }
 
   return {
     teams,
