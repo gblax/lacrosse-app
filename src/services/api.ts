@@ -192,11 +192,25 @@ export function transformGames(
       away: parseInt(p.away, 10) || 0,
     }))
 
+    // Derive display time: prefer startTime, fall back to formatting the epoch
+    let displayTime = game.startTime
+    if (!displayTime || displayTime === 'TBA' || displayTime === 'tba') {
+      const epoch = Number(game.startTimeEpoch)
+      if (epoch > 0) {
+        const d = new Date(epoch * 1000)
+        displayTime = d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZoneName: 'short',
+        })
+      }
+    }
+
     return {
       id: game.gameID,
       state: game.gameState,
-      startTime: game.startTime,
-      startDate: new Date(game.startDate),
+      startTime: displayTime,
+      startDate: new Date(game.startDate || game.startTimeEpoch),
       currentPeriod: game.currentPeriod,
       clock: game.contestClock,
       finalMessage: game.finalMessage || 'Final',
