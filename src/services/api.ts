@@ -1,6 +1,6 @@
 import type { NcaaScoreboardResponse, NcaaRankingsResponse } from '../types/ncaa'
 import type { EspnScoreboardResponse } from '../types/espn'
-import type { Game, Team, PeriodScore, Rankings, RankedTeam } from '../types'
+import type { Game, Team, PeriodScore, RankedTeam } from '../types'
 
 // Proxy through our own server to avoid CORS issues.
 // Vite dev server proxy and Vercel rewrites both handle /api/* paths.
